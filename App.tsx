@@ -19,23 +19,29 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'cards' | 'spreadsheet'>('spreadsheet');
   const [isAuditing, setIsAuditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   const [calcState, setCalcState] = useState({
-    actualPrice: 0,
+    actualPrice: 97,
     actualCommPercent: 50,
     manualCPC: 1.50,
   });
 
   useEffect(() => {
     const init = async () => {
-      if (isSupabaseConfigured) {
-        await fetchProducts();
-      } else {
-        const local = localStorage.getItem('garimpo_fallback');
-        if (local) setProducts(JSON.parse(local));
+      try {
+        if (isSupabaseConfigured && supabase) {
+          await fetchProducts();
+        } else {
+          const local = localStorage.getItem('garimpo_fallback');
+          if (local) {
+            setProducts(JSON.parse(local));
+          }
+        }
+      } catch (err) {
+        console.error("Erro na inicialização:", err);
+      } finally {
         setIsLoading(false);
       }
     };
@@ -43,19 +49,24 @@ const App: React.FC = () => {
   }, []);
 
   const fetchProducts = async () => {
-    if (!supabase) {
-      setIsLoading(false);
-      return;
-    }
+    if (!supabase) return;
     setIsLoading(true);
     try {
       const { data, error } = await supabase
         .from('products')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('createdAt', { ascending: false });
       
       if (!error && data) {
-        setProducts(data);
+        // Tratar campos JSON que vêm como string do Supabase em alguns casos
+        const processedData = data.map(item => ({
+          ...item,
+          financialAnalysis: typeof item.financialAnalysis === 'string' ? JSON.parse(item.financialAnalysis) : item.financialAnalysis,
+          marketInsights: typeof item.marketInsights === 'string' ? JSON.parse(item.marketInsights) : item.marketInsights,
+          adsAssets: typeof item.adsAssets === 'string' ? JSON.parse(item.adsAssets) : item.adsAssets,
+          performance: typeof item.performance === 'string' ? JSON.parse(item.performance) : item.performance,
+        }));
+        setProducts(processedData);
       }
     } catch (err) {
       console.error('Erro ao carregar produtos:', err);
@@ -77,8 +88,6 @@ const App: React.FC = () => {
             actualPrice: product.actualPrice,
             actualCommPercent: product.actualCommPercent,
             avgCPC: product.avgCPC,
-            minBidCPC: product.minBidCPC,
-            maxBidCPC: product.maxBidCPC,
             salesPageScore: product.salesPageScore,
             link: product.link,
             createdAt: product.createdAt,
@@ -86,7 +95,8 @@ const App: React.FC = () => {
             marketInsights: JSON.stringify(product.marketInsights),
             adsAssets: JSON.stringify(product.adsAssets),
             performance: JSON.stringify(product.performance),
-            aiVerdict: product.aiVerdict
+            aiVerdict: product.aiVerdict,
+            finalScore: product.finalScore
           });
         if (error) throw error;
         await fetchProducts();
@@ -114,10 +124,11 @@ const App: React.FC = () => {
   };
 
   const exportToExcel = () => {
+    if (products.length === 0) return alert("Nada para exportar!");
     const dataToExport = products.map(p => ({
       Nome: p.name,
       Plataforma: p.platform,
-      Niche: p.niche,
+      Nicho: p.niche,
       Preço: p.actualPrice,
       'Comissão (%)': p.actualCommPercent,
       'Comissão (R$)': p.financialAnalysis?.totalCommissionCash,
@@ -134,13 +145,7 @@ const App: React.FC = () => {
     XLSX.writeFile(wb, "garimpo_afiliados_pro.xlsx");
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedText(text);
-    setTimeout(() => setCopiedText(null), 2000);
-  };
-
-  const calculateFinancials = (data: any): FinancialAnalysis => {
+  const calculateFinancials = (data: { actualPrice: number, actualCommPercent: number, avgCPC: number }): FinancialAnalysis => {
     const actualCommCash = data.actualPrice * (data.actualCommPercent / 100);
     const adsCost = data.avgCPC * 30; // Média de 30 cliques por venda
     const profit = actualCommCash - adsCost;
@@ -185,9 +190,10 @@ const App: React.FC = () => {
         (formRef.current as any).marketAuditData = data;
         const scoreInput = formRef.current.elements.namedItem('salesPageScore') as HTMLInputElement;
         if (scoreInput) scoreInput.value = data.salesPageScore.toString();
+        alert("Análise da IA concluída! Confira as sugestões.");
       }
     } catch (err) {
-      alert("Erro na auditoria da IA.");
+      alert("Erro na auditoria da IA. Você pode continuar preenchendo manualmente.");
     } finally {
       setIsAuditing(false);
     }
@@ -213,16 +219,16 @@ const App: React.FC = () => {
       actualPrice: baseData.actualPrice,
       actualCommPercent: baseData.actualCommPercent,
       avgCPC: baseData.avgCPC,
-      gravityOrTemp: Number(formData.get('gravityOrTemp')) || 0,
+      gravityOrTemp: 0,
       ranking: 0,
       salesPageScore: Number(formData.get('salesPageScore')) || 7,
       link: formData.get('salesUrl') as string,
       finalScore: financials.roiPercent,
       createdAt: Date.now(),
       financialAnalysis: financials,
-      marketInsights: { ...auditData?.marketInsights, searchVolume: "1000" },
+      marketInsights: auditData?.marketInsights || { searchVolume: "1000", trendStatus: 'Estável', estimatedCPC: baseData.avgCPC, competitionLevel: 'Média' },
       adsAssets: auditData?.adsAssets,
-      aiVerdict: auditData?.aiVerdict
+      aiVerdict: auditData?.aiVerdict || "Produto adicionado manualmente sem veredito de IA."
     };
     await saveProduct(pData);
     setIsFormOpen(false);
@@ -235,21 +241,39 @@ const App: React.FC = () => {
     return ((actualCommCash - adsCost) / adsCost) * 100;
   }, [calcState]);
 
-  // UI Fallback se não configurado
-  if (!isSupabaseConfigured && products.length === 0 && !isLoading) {
+  // Se estiver carregando, mostra tela de loading
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white font-['Inter']">
+        <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mb-4" />
+        <p className="font-black uppercase tracking-widest text-xs">Sincronizando Dados...</p>
+      </div>
+    );
+  }
+
+  // Se não houver produtos e o modal estiver fechado, mostra tela de Empty State
+  if (products.length === 0 && !isFormOpen) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 font-['Inter']">
         <div className="max-w-xl w-full bg-slate-900 border border-white/10 rounded-[3rem] p-12 text-center space-y-8 shadow-2xl">
-          <div className="bg-emerald-500/20 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto border border-emerald-500/30 animate-pulse">
-            <Database className="w-12 h-12 text-emerald-400" />
+          <div className="bg-emerald-500/20 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto border border-emerald-500/30">
+            <Rocket className="w-12 h-12 text-emerald-400" />
           </div>
           <div className="space-y-4">
-            <h1 className="text-3xl font-black text-white uppercase tracking-tighter italic">SUPABASE <span className="text-emerald-400">OFFLINE</span></h1>
+            <h1 className="text-3xl font-black text-white uppercase tracking-tighter italic">BEM-VINDO AO <span className="text-emerald-400">GARIMPO</span></h1>
             <p className="text-slate-400 text-sm leading-relaxed">
-              Você está no modo temporário. Para salvar permanentemente no Netlify, configure <code className="text-emerald-400">SUPABASE_URL</code> e <code className="text-emerald-400">SUPABASE_ANON_KEY</code> no painel de controle do seu site.
+              Sua planilha inteligente está pronta. Comece adicionando seu primeiro produto de afiliado para análise de ROI e Auditoria de IA.
             </p>
+            {!isSupabaseConfigured && (
+              <p className="text-amber-400/80 text-[10px] uppercase font-bold tracking-widest bg-amber-400/10 p-2 rounded-lg inline-block">
+                Modo Offline: Seus dados serão salvos localmente
+              </p>
+            )}
           </div>
-          <button onClick={() => setIsFormOpen(true)} className="w-full bg-emerald-500 text-slate-900 py-6 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
+          <button 
+            onClick={() => setIsFormOpen(true)} 
+            className="w-full bg-emerald-500 text-slate-900 py-6 rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
             Começar Garimpo <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -267,7 +291,7 @@ const App: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-black uppercase italic tracking-tighter leading-none">GARIMPO <span className="text-emerald-400">EXPERT</span></h1>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Sua Planilha Inteligente de Afiliado</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Planilha Inteligente de Performance</p>
             </div>
           </div>
           
@@ -286,11 +310,11 @@ const App: React.FC = () => {
         {/* Dashboard de Métricas Rápidas */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total de Garimpos</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Garimpos Ativos</p>
             <p className="text-3xl font-black text-slate-900">{stats.count}</p>
           </div>
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Potencial de Lucro (Venda Única)</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Potencial de Lucro (Venda)</p>
             <p className="text-3xl font-black text-indigo-600">R$ {stats.totalPotential.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
           </div>
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
@@ -351,11 +375,7 @@ const App: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {isLoading ? (
-                    <tr><td colSpan={8} className="p-20 text-center animate-pulse font-black text-slate-300 uppercase tracking-widest">Sincronizando Banco de Dados...</td></tr>
-                  ) : filteredProducts.length === 0 ? (
-                    <tr><td colSpan={8} className="p-20 text-center font-bold text-slate-400">Nenhum produto encontrado.</td></tr>
-                  ) : filteredProducts.map(p => (
+                  {filteredProducts.map(p => (
                     <tr key={p.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-3">
@@ -443,7 +463,7 @@ const App: React.FC = () => {
             <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
               <div>
                 <h2 className="text-xl font-black uppercase italic tracking-tighter">GARIMPAR <span className="text-emerald-400">NOVA OFERTA</span></h2>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Preencha os dados básicos e deixe a IA auditar</p>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Audite e calcule o ROI do seu próximo produto</p>
               </div>
               <button onClick={() => setIsFormOpen(false)} className="bg-white/10 p-3 rounded-2xl hover:bg-rose-500 transition-colors"><Plus className="w-6 h-6 rotate-45" /></button>
             </div>
@@ -493,9 +513,9 @@ const App: React.FC = () => {
                   <input name="avgCPC" type="number" step="0.01" defaultValue="1.50" className="w-full p-5 rounded-xl border-2 border-indigo-200 bg-white font-black text-2xl text-indigo-600" onChange={e => setCalcState(prev => ({...prev, manualCPC: Number(e.target.value)}))} />
                 </div>
                 <div className={`p-6 rounded-2xl text-center border-2 transition-colors ${roiEst > 50 ? 'bg-emerald-50 border-emerald-100' : roiEst > 0 ? 'bg-indigo-50 border-indigo-100' : 'bg-rose-50 border-rose-100'}`}>
-                  <p className="text-[9px] font-black uppercase text-slate-400 mb-1">Resultado Projetado</p>
-                  <p className={`text-3xl font-black ${roiEst > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{roiEst.toFixed(0)}% ROI</p>
-                  <p className="text-[10px] font-bold text-slate-400 mt-1">Estimado baseado em 30 cliques/venda</p>
+                  <p className="text-[9px] font-black uppercase text-slate-400 mb-1">ROI Projetado</p>
+                  <p className={`text-3xl font-black ${roiEst > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{roiEst.toFixed(0)}%</p>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1">Custo Ads Est: R$ {(calcState.manualCPC * 30).toFixed(2)} / venda</p>
                 </div>
                 <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 py-6 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl transition-all">Salvar na Planilha</button>
               </div>
