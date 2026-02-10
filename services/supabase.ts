@@ -1,10 +1,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Função segura para obter variáveis de ambiente
+// Função segura para obter variáveis de ambiente sem quebrar se o objeto 'process' não existir
 const getEnv = (key: string): string => {
   try {
-    return (process.env as any)[key] || '';
+    if (typeof process !== 'undefined' && process.env) {
+      return (process.env as any)[key] || '';
+    }
+    return '';
   } catch {
     return '';
   }
@@ -13,9 +16,9 @@ const getEnv = (key: string): string => {
 const supabaseUrl = getEnv('SUPABASE_URL');
 const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl !== '');
+// Só inicializa se houver dados válidos e as strings não forem apenas espaços
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl.trim() !== '');
 
-// Só inicializa se houver dados válidos para não quebrar a aplicação
 export const supabase = isSupabaseConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;

@@ -48,7 +48,6 @@ export interface ActualPerformance {
   conversions: number;
   salesValue: number;
   lastUpdate: number;
-  // Novos campos de gestão
   accountName?: string;
   campaignName?: string;
   launchDate?: string;
@@ -72,6 +71,7 @@ export interface AffiliateProduct {
   gravityOrTemp: number; 
   ranking: number; 
   salesPageScore: number; 
+  blueprintScore?: number;
   link: string;
   finalScore: number;
   createdAt: number;
