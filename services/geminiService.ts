@@ -13,28 +13,22 @@ const getApiKey = (): string => {
 export const extractMarketAndPageData = async (productName: string, salesUrl: string, niche: string) => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    console.warn("API_KEY não configurada. Auditoria IA desativada.");
+    console.warn("API_KEY ausente. Funcionalidade de IA desativada.");
     return null;
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-  
   try {
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // Mudado para Flash para maior velocidade na auditoria inicial
-      contents: `Auditoria estratégica de afiliado:
-      Produto: ${productName}
-      Nicho: ${niche}
-      URL: ${salesUrl}
-
-      Retorne um JSON com análise da página de vendas, keywords fundo de funil e veredito de ROI.`,
+      model: 'gemini-3-flash-preview',
+      contents: `Analise este produto de afiliado: ${productName}, Nicho: ${niche}, URL: ${salesUrl}. Retorne um JSON com salesPageScore (0-10), aiVerdict (string) e adsAssets (objeto com keywords, titles, descriptions).`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            salesPageScore: { type: Type.NUMBER, description: "Nota 0-10 para a página" },
-            aiVerdict: { type: Type.STRING, description: "Análise estratégica curta" },
+            salesPageScore: { type: Type.NUMBER },
+            aiVerdict: { type: Type.STRING },
             adsAssets: {
               type: Type.OBJECT,
               properties: {
@@ -50,10 +44,9 @@ export const extractMarketAndPageData = async (productName: string, salesUrl: st
       },
     });
 
-    const text = response.text || "{}";
-    return JSON.parse(text);
+    return JSON.parse(response.text || "{}");
   } catch (e) {
-    console.error("Falha na auditoria Gemini:", e);
+    console.error("Erro Gemini:", e);
     return null;
   }
 };

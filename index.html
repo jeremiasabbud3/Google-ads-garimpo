@@ -5,12 +5,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Garimpo Control: Hub de Performance</title>
+    <script>
+        // Polyfill de segurança imediato
+        window.process = window.process || { env: {} };
+        if (!window.process.env) window.process.env = {};
+        
+        // Captura de erro global para depuração no Netlify
+        window.onerror = function(msg, url, line, col, error) {
+            console.error("Erro Crítico Detectado:", msg, "no link:", url);
+            // Se a tela estiver branca por mais de 3 segundos, podemos forçar um feedback
+            setTimeout(() => {
+                if (document.getElementById('root') && document.getElementById('root').innerHTML === "") {
+                    document.body.innerHTML = `<div style="padding: 20px; font-family: sans-serif; text-align: center;">
+                        <h2 style="color: #e11d48;">Erro de Carregamento</h2>
+                        <p>A aplicação não pôde ser iniciada. Verifique o console do navegador (F12).</p>
+                        <button onclick="location.reload()" style="padding: 10px 20px; cursor: pointer;">Recarregar Página</button>
+                    </div>`;
+                }
+            }, 3000);
+            return false;
+        };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script>
-        // Polyfill essencial para evitar erros de "process is not defined" no Netlify/Browser
-        window.process = window.process || { env: {} };
-    </script>
     <style>
         body { font-family: 'Inter', sans-serif; overflow-x: hidden; }
         ::-webkit-scrollbar { width: 8px; }

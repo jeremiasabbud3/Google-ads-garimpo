@@ -1,10 +1,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Função para obter variáveis de ambiente de forma segura no navegador
-const getEnvVar = (key: string): string => {
+const getEnv = (key: string): string => {
   try {
-    // Tenta acessar via process.env (injetado por bundlers) ou window.process
     const env = (window as any).process?.env || (typeof process !== 'undefined' ? process.env : {});
     return env[key] || "";
   } catch {
@@ -12,11 +10,18 @@ const getEnvVar = (key: string): string => {
   }
 };
 
-const supabaseUrl = getEnvVar('SUPABASE_URL');
-const supabaseAnonKey = getEnvVar('SUPABASE_ANON_KEY');
+const url = getEnv('SUPABASE_URL');
+const key = getEnv('SUPABASE_ANON_KEY');
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseUrl.length > 10);
+export const isSupabaseConfigured = !!(url && key && url.length > 5);
 
-export const supabase = isSupabaseConfigured 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
-  : null;
+let supabaseInstance = null;
+if (isSupabaseConfigured) {
+  try {
+    supabaseInstance = createClient(url, key);
+  } catch (e) {
+    console.warn("Erro ao instanciar Supabase:", e);
+  }
+}
+
+export const supabase = supabaseInstance;
